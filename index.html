@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Scan: Deep Diagnostics</title>
+    <style>
+        body { font-family: sans-serif; background: #020617; color: #e2e8f0; padding: 20px; margin: 0; }
+        .container { max-width: 500px; margin: auto; }
+        .header { text-align: center; padding: 20px 0; border-bottom: 2px solid #1e293b; margin-bottom: 20px; }
+        .system-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+        
+        button { 
+            width: 100%; padding: 18px; border-radius: 12px; border: none; 
+            font-weight: bold; font-size: 1rem; cursor: pointer; transition: 0.2s;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        
+        .btn-connect { background: #2563eb; color: white; margin-bottom: 25px; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4); }
+        .btn-system { background: #1e293b; color: #f1f5f9; border: 1px solid #334155; }
+        .btn-system:active { background: #334155; transform: scale(0.98); }
+        .btn-system:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #64748b; }
+        .active-dot { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+
+        #console { 
+            margin-top: 25px; background: #000; color: #10b981; font-family: monospace; 
+            padding: 15px; border-radius: 8px; font-size: 0.8rem; height: 150px; 
+            overflow-y: auto; border: 1px solid #064e3b;
+        }
+        .result-area {
+            margin-top: 20px; padding: 15px; background: #111827; border-radius: 12px;
+            border-left: 4px solid #3b82f6;
+        }
+        .dtc-found { color: #ef4444; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h2 style="margin:0; color: #3b82f6;">DEEP SCAN PRO</h2>
+        <p style="font-size: 0.8rem; color: #64748b;">Erikoisohjainlaitteiden diagnostiikka</p>
+    </div>
+
+    <button id="connectBtn" class="btn-connect">
+        <span>YHDISTÄ LUKIJAA</span>
+        <div id="connDot" class="status-dot"></div>
+    </button>
+
+    <div class="system-grid">
+        <button class="btn-system" onclick="scanSystem('ABS')">ABS / Jarrujärjestelmä <span>➔</span></button>
+        <button class="btn-system" onclick="scanSystem('AIRBAG')">Airbag / Turvatyynyt <span>➔</span></button>
+        <button class="btn-system" onclick="scanSystem('TRANSMISSION')">Vaihteisto (AT/DSG) <span>➔</span></button>
+        <button class="btn-system" onclick="scanSystem('PARKING')">Pysäköintitutkat <span>➔</span></button>
+        <button class="btn-system" onclick="scanSystem('STEERING')">Ohjaustehostin <span>➔</span></button>
+    </div>
+
+    <div class="result-area">
+        <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Viimeisin vastaus:</div>
+        <div id="diagResult" style="margin-top: 5px; font-weight: bold;">Valitse järjestelmä...</div>
+    </div>
+
+    <div id="console">Loki: Odottaa yhteyttä...</div>
+</div>
+
+<script>
+    let device, characteristic;
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+
+    // Ohjainlaitteiden tyypilliset CAN-osoitteet
+    const SYSTEM_CONFIG = {
+        'ABS': ['7E2', '03'],
+        'AIRBAG': ['7E3', '15'],
+        'TRANSMISSION': ['7E1', '18'],
+        'PARKING': ['7E6', '76'],
+        'STEERING': ['7E4', '44']
+    };
+
+    function log(msg) {
+        const c = document.getElementById('console');
+        c.innerHTML += `> ${msg}<br>`;
+        c.scrollTop = c.scrollHeight;
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+        try {
+            device = await navigator.bluetooth.requestDevice({
+                filters: [{ namePrefix: 'NexLink' }, { namePrefix: 'OBD' }],
+                optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
+            });
+            const gatt = await device.gatt.connect();
+            const service = await gatt.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
+            characteristic = await service.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
+            
+            log("Yhteys ok. Alustetaan...");
+            await sendCommand("AT Z");
+            await sendCommand("AT SP 0"); // Automaattinen protokolla
+            
+            document.getElementById('connDot').classList.add('active-dot');
+            document.getElementById('connectBtn').innerText = "YHDISTETTY";
+        } catch (e) {
+            log("Virhe: " + e.message);
+        }
+    });
+
+    async function sendCommand(cmd, timeout = 1200) {
+        if (!characteristic) return "NOT CONNECTED";
+        await characteristic.writeValue(encoder.encode(cmd + '\r'));
+        await new Promise(r => setTimeout(r, timeout));
+        const value = await characteristic.readValue();
+        return decoder.decode(value).replace(/>/g, '').trim();
+    }
+
+    async function scanSystem(sysName) {
+        if (!characteristic) { alert("Yhdistä lukija ensin!"); return; }
+        
+        const resultDiv = document.getElementById('diagResult');
+        resultDiv.innerHTML = "Skannataan <span style='color:#3b82f6'>" + sysName + "</span>...";
+        log(`Aloitetaan ${sysName} haku...`);
+
+        const addresses = SYSTEM_CONFIG[sysName];
+        let found = false;
+
+        for (let addr of addresses) {
+            log(`Kokeillaan osoitetta: ${addr}`);
+            await sendCommand(`AT SH ${addr}`);
+            
+            // Yritetään "herättää" yksikkö pyytämällä vikakoodit (Mode 03 tai UDS 19 02)
+            let response = await sendCommand("19 02 FF 00"); // Moderni UDS haku
+            
+            if (response.includes("NO DATA") || response.includes("ERROR")) {
+                response = await sendCommand("03"); // Vanhempi KWP/ISO haku
+            }
+
+            if (!response.includes("NO DATA") && !response.includes("ERROR") && response.length > 2) {
+                resultDiv.innerHTML = `<span class="dtc-found">VASTAUS SAATU (${addr}):</span><br>${response}`;
+                log(`${sysName} vastasi osoitteessa ${addr}`);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            resultDiv.innerHTML = "<span style='color:#94a3b8'>Ei vastausta järjestelmästä.</span>";
+            log(`${sysName} ei löytynyt kokeilluista osoitteista.`);
+        }
+
+        // Palautetaan yhteys moottoriin (standardi OBD)
+        await sendCommand("AT SH 7DF");
+    }
+</script>
+</body>
+</html>
