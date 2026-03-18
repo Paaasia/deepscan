@@ -3,31 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pro Scan: Deep Diagnostics & Clear</title>
+    <title>Deep Scan Pro v1.2</title>
     <style>
-        body { font-family: sans-serif; background: #020617; color: #e2e8f0; padding: 20px; margin: 0; }
+        body { font-family: sans-serif; background: #020617; color: #e2e8f0; padding: 15px; margin: 0; }
         .container { max-width: 500px; margin: auto; }
-        .header { text-align: center; padding: 20px 0; border-bottom: 2px solid #1e293b; margin-bottom: 20px; }
-        .system-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+        .header { text-align: center; padding: 15px 0; border-bottom: 2px solid #1e293b; margin-bottom: 15px; }
         
         button { 
-            width: 100%; padding: 18px; border-radius: 12px; border: none; 
-            font-weight: bold; font-size: 1rem; cursor: pointer; transition: 0.2s;
-            display: flex; justify-content: space-between; align-items: center;
+            width: 100%; padding: 16px; border-radius: 12px; border: none; 
+            font-weight: bold; cursor: pointer; transition: 0.2s;
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
         }
         
-        .btn-connect { background: #2563eb; color: white; margin-bottom: 25px; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4); }
-        .btn-system { background: #1e293b; color: #f1f5f9; border: 1px solid #334155; }
-        .btn-clear { background: #7f1d1d; color: #fecaca; margin-top: 10px; font-size: 0.8rem; display: none; padding: 12px; }
-        
+        .btn-connect { background: #2563eb; color: white; margin-bottom: 20px; }
+        .btn-scan-all { background: #8b5cf6; color: white; border: 2px solid #a78bfa; margin-bottom: 20px; }
+        .btn-system { background: #1e293b; color: #f1f5f9; font-size: 0.9rem; }
+        .btn-clear { background: #7f1d1d; color: #fecaca; display: none; margin-top: 10px; }
+
         #console { 
-            margin-top: 25px; background: #000; color: #10b981; font-family: monospace; 
-            padding: 15px; border-radius: 8px; font-size: 0.8rem; height: 150px; 
+            margin-top: 20px; background: #000; color: #10b981; font-family: monospace; 
+            padding: 12px; border-radius: 8px; font-size: 0.75rem; height: 140px; 
             overflow-y: auto; border: 1px solid #064e3b;
         }
         .result-area {
-            margin-top: 20px; padding: 15px; background: #111827; border-radius: 12px;
-            border-left: 4px solid #3b82f6;
+            margin-top: 15px; padding: 15px; background: #111827; border-radius: 12px;
+            border-left: 4px solid #8b5cf6; min-height: 60px;
         }
     </style>
 </head>
@@ -35,42 +35,43 @@
 
 <div class="container">
     <div class="header">
-        <h2 style="margin:0; color: #ef4444;">DEEP SCAN & RESET</h2>
-        <p style="font-size: 0.8rem; color: #64748b;">Lue ja nollaa erikoisohjainlaitteet</p>
+        <h2 style="margin:0; color: #8b5cf6;">DEEP SCAN PRO</h2>
+        <p style="font-size: 0.75rem; color: #64748b;">Automated Multi-System Diagnostics</p>
     </div>
 
-    <button id="connectBtn" class="btn-connect">
-        <span>YHDISTÄ LUKIJAA</span>
-        <div id="connDot" style="width:10px;height:10px;border-radius:50%;background:#64748b;"></div>
+    <button id="connectBtn" class="btn-connect">YHDISTÄ LUKIJAA</button>
+
+    <!-- UUSI SCAN ALL -NAPPI -->
+    <button id="scanAllBtn" class="btn-scan-all" onclick="scanAllSystems()">
+        🚀 SKANNAA KAIKKI JÄRJESTELMÄT
     </button>
 
-    <div class="system-grid" id="systemButtons">
-        <button class="btn-system" onclick="scanSystem('ABS')">ABS / Jarrut <span>Lue</span></button>
-        <button class="btn-system" onclick="scanSystem('AIRBAG')">Airbag / Turvatyynyt <span>Lue</span></button>
-        <button class="btn-system" onclick="scanSystem('TRANSMISSION')">Vaihteisto (AT/DSG) <span>Lue</span></button>
-        <button class="btn-system" onclick="scanSystem('STEERING')">Ohjaustehostin <span>Lue</span></button>
+    <div id="systemButtons">
+        <button class="btn-system" onclick="scanSingle('ABS')">Lue ABS <span>➔</span></button>
+        <button class="btn-system" onclick="scanSingle('AIRBAG')">Lue Airbag <span>➔</span></button>
+        <button class="btn-system" onclick="scanSingle('TRANSMISSION')">Lue Vaihteisto <span>➔</span></button>
     </div>
 
     <div class="result-area">
-        <div id="diagResult">Valitse järjestelmä...</div>
-        <button id="clearBtn" class="btn-clear" onclick="clearDTCs()">⚠️ NOLLAA TÄMÄN JÄRJESTELMÄN VIKAKOODIT</button>
+        <div id="diagResult">Valmis skannaamaan...</div>
+        <button id="clearBtn" class="btn-clear" onclick="clearDTCs()">⚠️ NOLLAA VIKAKOODIT</button>
     </div>
 
-    <div id="console">Loki: Odottaa...</div>
+    <div id="console">Loki: Odota yhteyttä...</div>
 </div>
 
 <script>
     let device, characteristic;
-    let currentSystem = null;
-    let currentAddr = null;
+    let currentSystem = null, currentAddr = null;
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
 
+    // Laajennettu osoitelista mm. Ranskalaisia varten
     const SYSTEM_CONFIG = {
-        'ABS': ['7E2', '03'],
-        'AIRBAG': ['7E3', '15'],
+        'ABS': ['7E2', '03', 'F1', 'E8'],
+        'AIRBAG': ['7E3', '15', '51', 'EA'],
         'TRANSMISSION': ['7E1', '18'],
-        'STEERING': ['7E4', '44']
+        'STEERING': ['7E4', '44', '30']
     };
 
     function log(msg) {
@@ -91,56 +92,70 @@
             log("Yhteys ok. Alustetaan...");
             await sendCommand("AT Z");
             await sendCommand("AT SP 0");
-            document.getElementById('connectBtn').style.background = "#059669";
             document.getElementById('connectBtn').innerText = "YHDISTETTY";
+            document.getElementById('connectBtn').style.background = "#059669";
         } catch (e) { log("Virhe: " + e.message); }
     });
 
-    async function sendCommand(cmd, timeout = 1200) {
-        if (!characteristic) return "ERROR";
+    async function sendCommand(cmd, timeout = 1000) {
+        if (!characteristic) return "ERR";
         await characteristic.writeValue(encoder.encode(cmd + '\r'));
         await new Promise(r => setTimeout(r, timeout));
         const value = await characteristic.readValue();
         return decoder.decode(value).replace(/>/g, '').trim();
     }
 
-    async function scanSystem(sysName) {
-        currentSystem = sysName;
+    async function scanSingle(sysName) {
+        if (!characteristic) { alert("Yhdistä ensin!"); return; }
         document.getElementById('clearBtn').style.display = "none";
-        const resultDiv = document.getElementById('diagResult');
-        resultDiv.innerHTML = "Etsitään " + sysName + "...";
+        document.getElementById('diagResult').innerHTML = `Etsitään: ${sysName}...`;
+        
+        let found = await performScan(sysName);
+        if (!found) document.getElementById('diagResult').innerHTML = "Ei vastausta.";
+    }
 
+    async function scanAllSystems() {
+        if (!characteristic) { alert("Yhdistä ensin!"); return; }
+        log("Aloitetaan täysskannaus...");
+        let results = [];
+        
+        for (let sys in SYSTEM_CONFIG) {
+            document.getElementById('diagResult').innerHTML = `Skannataan: ${sys}...`;
+            let res = await performScan(sys);
+            if (res) results.push(sys);
+        }
+        
+        document.getElementById('diagResult').innerHTML = results.length > 0 
+            ? `<b>Löytyi:</b> ${results.join(', ')}<br><small>Valitse järjestelmä alta nollataksesi.</small>`
+            : "Ei löytyneitä järjestelmiä.";
+    }
+
+    async function performScan(sysName) {
         for (let addr of SYSTEM_CONFIG[sysName]) {
+            log(`Check ${sysName} @ ${addr}...`);
             await sendCommand(`AT SH ${addr}`);
-            let res = await sendCommand("19 02 FF 00"); // UDS luku
-            if (res.includes("NO DATA") || res.includes("ERROR")) res = await sendCommand("03"); // KWP luku
+            let res = await sendCommand("19 02 FF 00"); // UDS
+            if (res.includes("NO DATA") || res.includes("ERROR")) res = await sendCommand("03"); // KWP
             
-            if (res.length > 2 && !res.includes("ERROR")) {
+            if (res.length > 2 && !res.includes("ERROR") && !res.includes("NO DATA")) {
+                currentSystem = sysName;
                 currentAddr = addr;
-                resultDiv.innerHTML = `<b>${sysName} (${addr}):</b><br>${res}`;
+                document.getElementById('diagResult').innerHTML = `<b>${sysName} (${addr}):</b><br>${res}`;
                 document.getElementById('clearBtn').style.display = "block";
-                return;
+                return true;
             }
         }
-        resultDiv.innerHTML = "Ei vastausta järjestelmästä.";
+        return false;
     }
 
     async function clearDTCs() {
-        if (!confirm("Haluatko varmasti nollata vikakoodit? Tämä voi poistaa tärkeitä diagnostiikkatietoja.")) return;
-        
-        log(`Nollataan ${currentSystem} (${currentAddr})...`);
+        if (!confirm("Nollataanko " + currentSystem + "?")) return;
+        log(`Resetting ${currentAddr}...`);
         await sendCommand(`AT SH ${currentAddr}`);
-        
-        // Kokeillaan kolmea eri nollaustapaa
-        await sendCommand("14 FF FF FF"); // Standardi UDS nollaus
-        await sendCommand("04");          // Standardi OBD/KWP nollaus
-        let res = await sendCommand("14 00 00 00"); // Vaihtoehtoinen UDS
-        
-        log("Nollauskäskyt lähetetty.");
-        document.getElementById('diagResult').innerHTML = "<b>Nollaus suoritettu.</b><br>Lue järjestelmä uudelleen tarkistaaksesi tilanteen.";
+        await sendCommand("14 FF FF FF"); // UDS clear
+        await sendCommand("04");          // Std clear
+        document.getElementById('diagResult').innerHTML = "Nollattu. Lue uudelleen.";
         document.getElementById('clearBtn').style.display = "none";
-        
-        // Palautus moottoriin
         await sendCommand("AT SH 7DF");
     }
 </script>
